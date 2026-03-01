@@ -1,0 +1,10 @@
+import Database from "better-sqlite3";
+const db = new Database("apm.db");
+const columns = db.pragma("table_info(tasks)");
+console.log(JSON.stringify(columns, null, 2));
+const users = db.prepare("SELECT * FROM users").all();
+console.log("Users count:", users.length);
+const projects = db.prepare("SELECT * FROM projects").all();
+console.log("Projects count:", projects.length);
+const tasks = db.prepare("SELECT * FROM tasks").all();
+console.log("Tasks count:", tasks.length);
