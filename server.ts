@@ -131,6 +131,23 @@ async function startServer() {
     }
   });
 
+  app.post("/api/signup", (req, res) => {
+    const { email, password, full_name } = req.body;
+    try {
+      const result = db.prepare("INSERT INTO users (email, password, full_name, role) VALUES (?, ?, ?, ?)").run(
+        email,
+        password,
+        full_name,
+        'user'
+      );
+      const newUser = db.prepare("SELECT * FROM users WHERE id = ?").get(result.lastInsertRowid);
+      const { password: _, ...userWithoutPassword } = newUser;
+      res.json(userWithoutPassword);
+    } catch (e) {
+      res.status(400).json({ error: "Email already exists" });
+    }
+  });
+
   // User Management (Admin Only)
   app.get("/api/admin/users", (req, res) => {
     const users = db.prepare("SELECT id, email, full_name, role, status, created_at FROM users").all();
@@ -209,6 +226,19 @@ async function startServer() {
     } catch (error: any) {
       console.error("Error creating project:", error);
       res.status(500).json({ error: error.message || "Failed to create project" });
+    }
+  });
+
+  app.patch("/api/projects/:id", (req, res) => {
+    const { id } = req.params;
+    const { name, description } = req.body;
+    try {
+      if (name) db.prepare("UPDATE projects SET name = ? WHERE id = ?").run(name, id);
+      if (description !== undefined) db.prepare("UPDATE projects SET description = ? WHERE id = ?").run(description, id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error updating project:", error);
+      res.status(500).json({ error: error.message || "Failed to update project" });
     }
   });
 

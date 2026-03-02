@@ -31,7 +31,8 @@ import {
   Send,
   Filter,
   GanttChart,
-  Download
+  Download,
+  ArrowRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as d3 from 'd3';
@@ -503,6 +504,31 @@ const TaskDetailModal = ({
                 </div>
 
                 <div className="flex items-center justify-between">
+                  <span className="text-xs text-zinc-500">Status</span>
+                  {isEditing ? (
+                    <select 
+                      value={editData.status}
+                      onChange={e => setEditData({...editData, status: e.target.value as any})}
+                      className="text-xs font-bold bg-white border border-zinc-200 rounded-lg px-2 py-1"
+                    >
+                      <option value="todo">To Do</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="review">Review</option>
+                      <option value="done">Done</option>
+                    </select>
+                  ) : (
+                    <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded ${
+                      task.status === 'done' ? 'bg-emerald-100 text-emerald-600' : 
+                      task.status === 'review' ? 'bg-purple-100 text-purple-600' : 
+                      task.status === 'in_progress' ? 'bg-blue-100 text-blue-600' : 
+                      'bg-zinc-100 text-zinc-600'
+                    }`}>
+                      {task.status.replace('_', ' ')}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between">
                   <span className="text-xs text-zinc-500">Priority</span>
                   {isEditing ? (
                     <select 
@@ -601,7 +627,7 @@ const TaskDetailModal = ({
   );
 };
 
-const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, onDeleteTask, onDeleteProject }: { 
+const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, onDeleteTask, onDeleteProject, onEditProject }: { 
   project: Project, 
   tasks: Task[], 
   users: User[],
@@ -609,7 +635,8 @@ const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, on
   onUpdateTask: (id: number | string, updates: Partial<Task>) => void,
   onAddTask: () => void,
   onDeleteTask: (id: number | string) => Promise<boolean>,
-  onDeleteProject: (id: number | string) => Promise<void>
+  onDeleteProject: (id: number | string) => Promise<void>,
+  onEditProject: (project: Project) => void
 }) => {
   const [filter, setFilter] = useState<'all' | 'mine'>('all');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -639,17 +666,26 @@ const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, on
         </div>
         <div className="flex items-center gap-3">
           {user.role === 'admin' && (
-            <button 
-              onClick={() => {
-                if (confirm(`Are you sure you want to delete project "${project.name}"? This will delete all tasks, comments, and attachments in this project.`)) {
-                  onDeleteProject(project.id);
-                }
-              }}
-              className="p-2 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
-              title="Delete Project"
-            >
-              <Trash2 size={20} />
-            </button>
+            <>
+              <button 
+                onClick={() => onEditProject(project)}
+                className="p-2 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                title="Edit Project"
+              >
+                <Edit2 size={20} />
+              </button>
+              <button 
+                onClick={() => {
+                  if (confirm(`Are you sure you want to delete project "${project.name}"? This will delete all tasks, comments, and attachments in this project.`)) {
+                    onDeleteProject(project.id);
+                  }
+                }}
+                className="p-2 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                title="Delete Project"
+              >
+                <Trash2 size={20} />
+              </button>
+            </>
           )}
           <div className="bg-zinc-100 p-1 rounded-xl flex gap-1">
             <button 
@@ -715,17 +751,28 @@ const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, on
                         {(task.health_status || 'on_track').replace('_', ' ')}
                       </span>
                     </div>
-                      <div className="flex items-center gap-1">
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedTask(task);
-                          }}
-                          className="p-1.5 text-zinc-400 hover:text-indigo-600 hover:bg-zinc-100 rounded-md transition-colors"
-                          title="Edit Task"
-                        >
-                          <Edit2 size={16} />
-                        </button>
+                    <div className="flex items-center gap-1">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const nextStatus = getNextStatus(task.status);
+                          onUpdateTask(task.id, { status: nextStatus as any });
+                        }}
+                        className="p-1.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
+                        title={`Move to ${columns.find(c => c.id === getNextStatus(task.status))?.label}`}
+                      >
+                        <ArrowRight size={16} />
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedTask(task);
+                        }}
+                        className="p-1.5 text-zinc-400 hover:text-indigo-600 hover:bg-zinc-100 rounded-md transition-colors"
+                        title="Edit Task"
+                      >
+                        <Edit2 size={16} />
+                      </button>
                         {user.role === 'admin' && (
                           <button 
                             onClick={(e) => {
@@ -1387,16 +1434,30 @@ const Login = ({ onLogin, useSupabase }: { onLogin: (user: User) => void, useSup
           }
         }
       } else {
-        const res = await fetch('/api/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password })
-        });
-        const data = await res.json();
-        if (res.ok) {
-          onLogin(data);
+        if (isSignUp) {
+          const res = await fetch('/api/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, full_name: fullName })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            onLogin(data);
+          } else {
+            setError(data.error);
+          }
         } else {
-          setError(data.error);
+          const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            onLogin(data);
+          } else {
+            setError(data.error);
+          }
         }
       }
     } catch (err: any) {
@@ -1474,16 +1535,14 @@ const Login = ({ onLogin, useSupabase }: { onLogin: (user: User) => void, useSup
             </button>
           </form>
 
-          {useSupabase && (
-            <div className="mt-6 text-center">
-              <button 
-                onClick={() => setIsSignUp(!isSignUp)}
-                className="text-sm font-bold text-indigo-600 hover:text-indigo-700"
-              >
-                {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
-              </button>
-            </div>
-          )}
+          <div className="mt-6 text-center">
+            <button 
+              onClick={() => setIsSignUp(!isSignUp)}
+              className="text-sm font-bold text-indigo-600 hover:text-indigo-700"
+            >
+              {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1530,11 +1589,19 @@ export default function App() {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [useSupabase, setUseSupabase] = useState(!!(import.meta as any).env.VITE_SUPABASE_URL && !!(import.meta as any).env.VITE_SUPABASE_ANON_KEY);
 
   // Form states for new project
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDesc, setNewProjectDesc] = useState('');
+
+  const handleEditProject = (project: Project) => {
+    setEditingProject(project);
+    setNewProjectName(project.name);
+    setNewProjectDesc(project.description);
+    setIsProjectModalOpen(true);
+  };
 
   // Form states for new task
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -1770,25 +1837,37 @@ export default function App() {
     
     try {
       if (useSupabase) {
-        const { error: projectError } = await supabase.from('projects').insert({
-          name: newProjectName,
-          description: newProjectDesc,
-          owner_id: user?.id
-        });
-        if (projectError) {
-          console.error("Project creation error:", projectError);
-          alert(`Failed to create project: ${projectError.message}`);
-          throw projectError;
+        if (editingProject) {
+          const { error: projectError } = await supabase.from('projects').update({
+            name: newProjectName,
+            description: newProjectDesc
+          }).eq('id', editingProject.id);
+          if (projectError) throw projectError;
+        } else {
+          const { error: projectError } = await supabase.from('projects').insert({
+            name: newProjectName,
+            description: newProjectDesc,
+            owner_id: user?.id
+          });
+          if (projectError) {
+            console.error("Project creation error:", projectError);
+            alert(`Failed to create project: ${projectError.message}`);
+            throw projectError;
+          }
         }
         setIsProjectModalOpen(false);
+        setEditingProject(null);
         setNewProjectName('');
         setNewProjectDesc('');
         await fetchData();
         return;
       }
 
-      const res = await fetch('/api/projects', {
-        method: 'POST',
+      const url = editingProject ? `/api/projects/${editingProject.id}` : '/api/projects';
+      const method = editingProject ? 'PATCH' : 'POST';
+
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           name: newProjectName, 
@@ -1798,15 +1877,16 @@ export default function App() {
       });
       if (res.ok) {
         setIsProjectModalOpen(false);
+        setEditingProject(null);
         setNewProjectName('');
         setNewProjectDesc('');
         await fetchData();
       } else {
         const error = await res.json();
-        alert(error.error || "Failed to create project");
+        alert(error.error || `Failed to ${editingProject ? 'update' : 'create'} project`);
       }
     } catch (error) {
-      console.error("Failed to create project", error);
+      console.error(`Failed to ${editingProject ? 'update' : 'create'} project`, error);
       alert("A network error occurred. Please try again.");
     }
   };
@@ -1931,6 +2011,7 @@ export default function App() {
                     onAddTask={() => setIsTaskModalOpen(true)}
                     onDeleteTask={handleDeleteTask}
                     onDeleteProject={handleDeleteProject}
+                    onEditProject={handleEditProject}
                   />
                 ) : (
                   <div className="text-center py-20">
@@ -2052,7 +2133,7 @@ export default function App() {
             animate={{ scale: 1, opacity: 1 }}
             className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto p-8"
           >
-            <h3 className="text-xl font-bold mb-6">Create New Project</h3>
+            <h3 className="text-xl font-bold mb-6">{editingProject ? 'Edit Project' : 'Create New Project'}</h3>
             <form onSubmit={handleCreateProject} className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-zinc-700 mb-1">Project Name</label>
@@ -2077,7 +2158,12 @@ export default function App() {
               <div className="flex gap-3 pt-4">
                 <button 
                   type="button"
-                  onClick={() => setIsProjectModalOpen(false)}
+                  onClick={() => {
+                    setIsProjectModalOpen(false);
+                    setEditingProject(null);
+                    setNewProjectName('');
+                    setNewProjectDesc('');
+                  }}
                   className="flex-1 px-4 py-2 rounded-xl border border-zinc-200 font-bold hover:bg-zinc-50 transition-colors"
                 >
                   Cancel
@@ -2086,7 +2172,7 @@ export default function App() {
                   type="submit"
                   className="flex-1 px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-colors"
                 >
-                  Create Project
+                  {editingProject ? 'Save Changes' : 'Create Project'}
                 </button>
               </div>
             </form>
