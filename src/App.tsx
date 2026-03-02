@@ -96,7 +96,7 @@ type Attachment = {
 
 const Logo = ({ className = "w-8 h-8" }: { className?: string }) => (
   <div className={`${className} bg-indigo-600 rounded-lg flex items-center justify-center text-white font-black text-[10px] shadow-lg shadow-indigo-500/20`}>
-    A
+    APM
   </div>
 );
 
