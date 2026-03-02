@@ -307,7 +307,7 @@ async function startServer() {
       }
 
       // Ensure assignee_id is a valid ID or null
-      const finalAssigneeId = (assignee_id && assignee_id > 0) ? assignee_id : null;
+      const finalAssigneeId = (assignee_id && assignee_id !== '0' && assignee_id !== 0) ? assignee_id : null;
 
       const result = db.prepare("INSERT INTO tasks (project_id, title, description, priority, assignee_id, due_date, health_status) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
         project_id, title, description, priority, finalAssigneeId, due_date, health_status || 'on_track'
@@ -326,7 +326,10 @@ async function startServer() {
     if (title) db.prepare("UPDATE tasks SET title = ? WHERE id = ?").run(title, req.params.id);
     if (description) db.prepare("UPDATE tasks SET description = ? WHERE id = ?").run(description, req.params.id);
     if (priority) db.prepare("UPDATE tasks SET priority = ? WHERE id = ?").run(priority, req.params.id);
-    if (assignee_id !== undefined) db.prepare("UPDATE tasks SET assignee_id = ? WHERE id = ?").run(assignee_id, req.params.id);
+    if (assignee_id !== undefined) {
+      const finalAssigneeId = (assignee_id && assignee_id !== '0' && assignee_id !== 0) ? assignee_id : null;
+      db.prepare("UPDATE tasks SET assignee_id = ? WHERE id = ?").run(finalAssigneeId, req.params.id);
+    }
     if (due_date) db.prepare("UPDATE tasks SET due_date = ? WHERE id = ?").run(due_date, req.params.id);
     if (health_status) db.prepare("UPDATE tasks SET health_status = ? WHERE id = ?").run(health_status, req.params.id);
     

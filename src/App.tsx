@@ -493,14 +493,14 @@ const TaskDetailModal = ({
                   <span className="text-xs text-zinc-500">Assignee</span>
                   {isEditing ? (
                     <select 
-                      value={editData.assignee_id || 0}
+                      value={editData.assignee_id || ""}
                       onChange={e => {
                         const val = e.target.value;
-                        setEditData({...editData, assignee_id: val === '0' ? null : (isNaN(parseInt(val)) ? val : parseInt(val))});
+                        setEditData({...editData, assignee_id: val === "" ? null : val});
                       }}
                       className="text-xs font-bold bg-white border border-zinc-200 rounded-lg px-2 py-1"
                     >
-                      <option value={0}>Unassigned</option>
+                      <option value="">Unassigned</option>
                       {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
                     </select>
                   ) : (
@@ -1618,7 +1618,7 @@ export default function App() {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDesc, setNewTaskDesc] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
-  const [newTaskAssignee, setNewTaskAssignee] = useState<number | string>(0);
+  const [newTaskAssignee, setNewTaskAssignee] = useState<number | string | null>(null);
   const [newTaskProject, setNewTaskProject] = useState<number | string>(0);
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
 
@@ -1743,8 +1743,14 @@ export default function App() {
 
   const handleUpdateTask = async (id: number | string, updates: Partial<Task>) => {
     try {
+      // Sanitize assignee_id for Supabase/PostgreSQL UUID compatibility
+      const sanitizedUpdates = { ...updates };
+      if (sanitizedUpdates.assignee_id === 0 || sanitizedUpdates.assignee_id === '0') {
+        sanitizedUpdates.assignee_id = null;
+      }
+
       if (useSupabase) {
-        const { error: taskError } = await supabase.from('tasks').update(updates).eq('id', id);
+        const { error: taskError } = await supabase.from('tasks').update(sanitizedUpdates).eq('id', id);
         if (taskError) {
           console.error("Task update error:", taskError);
           alert(`Failed to update task: ${taskError.message}`);
@@ -1757,7 +1763,7 @@ export default function App() {
       const res = await fetch(`/api/tasks/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
+        body: JSON.stringify(sanitizedUpdates)
       });
       if (res.ok) {
         fetchData();
@@ -1798,7 +1804,7 @@ export default function App() {
         setNewTaskTitle('');
         setNewTaskDesc('');
         setNewTaskDueDate('');
-        setNewTaskAssignee(0);
+        setNewTaskAssignee(null);
         setNewTaskProject(0);
         setNewTaskPriority('medium');
         await fetchData();
@@ -1830,7 +1836,7 @@ export default function App() {
         setNewTaskTitle('');
         setNewTaskDesc('');
         setNewTaskDueDate('');
-        setNewTaskAssignee(0);
+        setNewTaskAssignee(null);
         setNewTaskProject(0);
         setNewTaskPriority('medium');
         
@@ -2132,14 +2138,14 @@ export default function App() {
               <div>
                 <label className="block text-sm font-bold text-zinc-700 mb-1">Assignee</label>
                 <select 
-                  value={newTaskAssignee}
+                  value={newTaskAssignee || ""}
                   onChange={(e) => {
                     const val = e.target.value;
-                    setNewTaskAssignee(val === '0' ? 0 : (isNaN(parseInt(val)) ? val : parseInt(val)));
+                    setNewTaskAssignee(val === "" ? null : val);
                   }}
                   className="w-full px-4 py-2 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none"
                 >
-                  <option value={0}>Unassigned</option>
+                  <option value="">Unassigned</option>
                   {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
                 </select>
               </div>
