@@ -201,7 +201,7 @@ const Sidebar = ({ activeTab, setActiveTab, user, onLogout, projects, selectedPr
   );
 };
 
-const Dashboard = ({ projects, tasks }: { projects: Project[], tasks: Task[] }) => {
+const Dashboard = ({ projects, tasks, onSelectTask }: { projects: Project[], tasks: Task[], onSelectTask: (task: Task) => void }) => {
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   
@@ -267,7 +267,7 @@ const Dashboard = ({ projects, tasks }: { projects: Project[], tasks: Task[] }) 
           <h3 className="font-bold text-zinc-900 mb-4">Upcoming Deadlines</h3>
           <div className="space-y-4">
             {sortedUpcomingTasks.length > 0 ? sortedUpcomingTasks.map(t => (
-              <div key={t.id} className="flex items-center justify-between p-3 hover:bg-zinc-50 rounded-xl transition-colors">
+              <div key={t.id} onClick={() => onSelectTask(t)} className="flex items-center justify-between p-3 hover:bg-zinc-50 rounded-xl transition-colors cursor-pointer">
                 <div className="flex items-center gap-3">
                   <div className={`w-2 h-2 rounded-full ${
                     t.priority === 'high' ? 'bg-red-500' : t.priority === 'medium' ? 'bg-amber-500' : 'bg-emerald-500'
@@ -493,10 +493,14 @@ const TaskDetailModal = ({
                   <span className="text-xs text-zinc-500">Assignee</span>
                   {isEditing ? (
                     <select 
-                      value={editData.assignee_id}
-                      onChange={e => setEditData({...editData, assignee_id: parseInt(e.target.value)})}
+                      value={editData.assignee_id || 0}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setEditData({...editData, assignee_id: val === '0' ? null : (isNaN(parseInt(val)) ? val : parseInt(val))});
+                      }}
                       className="text-xs font-bold bg-white border border-zinc-200 rounded-lg px-2 py-1"
                     >
+                      <option value={0}>Unassigned</option>
                       {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
                     </select>
                   ) : (
@@ -633,7 +637,7 @@ const TaskDetailModal = ({
   );
 };
 
-const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, onDeleteTask, onDeleteProject, onEditProject }: { 
+const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, onDeleteTask, onDeleteProject, onEditProject, selectedTask, onSelectTask }: { 
   project: Project, 
   tasks: Task[], 
   users: User[],
@@ -642,10 +646,11 @@ const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, on
   onAddTask: () => void,
   onDeleteTask: (id: number | string) => Promise<boolean>,
   onDeleteProject: (id: number | string) => Promise<void>,
-  onEditProject: (project: Project) => void
+  onEditProject: (project: Project) => void,
+  selectedTask: Task | null,
+  onSelectTask: (task: Task | null) => void
 }) => {
   const [filter, setFilter] = useState<'all' | 'mine'>('all');
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -735,7 +740,7 @@ const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, on
                 <motion.div
                   layoutId={task.id.toString()}
                   key={task.id}
-                  onClick={() => setSelectedTask(task)}
+                  onClick={() => onSelectTask(task)}
                   className="bg-white p-4 rounded-xl shadow-sm border border-zinc-200 hover:border-indigo-300 transition-all cursor-pointer group relative"
                 >
                   <div className="flex items-start justify-between gap-2 mb-3">
@@ -772,7 +777,7 @@ const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, on
                       <button 
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedTask(task);
+                          onSelectTask(task);
                         }}
                         className="p-1.5 text-zinc-400 hover:text-indigo-600 hover:bg-zinc-100 rounded-md transition-colors"
                         title="Edit Task"
@@ -827,23 +832,6 @@ const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, on
       </div>
 
       <AnimatePresence>
-        {selectedTask && (
-          <TaskDetailModal 
-            task={selectedTask}
-            user={user}
-            users={users}
-            onClose={() => setSelectedTask(null)}
-            onUpdate={onUpdateTask}
-            onDelete={async (id) => {
-              setTaskToDelete(selectedTask);
-              return true; // We handle deletion via the confirmation modal
-            }}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Task Delete Confirmation Modal */}
-      <AnimatePresence>
         {taskToDelete && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
             <motion.div 
@@ -874,7 +862,7 @@ const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, on
                     setIsDeleting(false);
                     if (success) {
                       setTaskToDelete(null);
-                      setSelectedTask(null);
+                      onSelectTask(null);
                     }
                   }}
                   disabled={isDeleting}
@@ -1060,7 +1048,7 @@ const SettingsPanel = ({ user, useSupabase }: { user: User, useSupabase: boolean
   );
 };
 
-const AdminPanel = ({ onAddUser, users, onRefresh }: { onAddUser: () => void, users: User[], onRefresh: () => void }) => {
+const AdminPanel = ({ onAddUser, users, onRefresh, onAssignTask }: { onAddUser: () => void, users: User[], onRefresh: () => void, onAssignTask: (user: User) => void }) => {
   const [resettingUser, setResettingUser] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState('');
@@ -1162,6 +1150,15 @@ const AdminPanel = ({ onAddUser, users, onRefresh }: { onAddUser: () => void, us
                 </td>
                 <td className="px-6 py-4 text-right">
                   <div className="flex items-center justify-end gap-1">
+                    <button 
+                      onClick={() => onAssignTask(user)}
+                      className="p-2 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors group relative"
+                    >
+                      <Plus size={16} />
+                      <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                        Assign Task
+                      </span>
+                    </button>
                     <button 
                       onClick={() => setResettingUser(user)}
                       className="p-2 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors group relative"
@@ -1553,7 +1550,7 @@ const Login = ({ onLogin, useSupabase }: { onLogin: (user: User) => void, useSup
   );
 };
 
-const TeamPanel = ({ users }: { users: User[] }) => {
+const TeamPanel = ({ users, onAssignTask }: { users: User[], onAssignTask: (user: User) => void }) => {
   return (
     <div className="space-y-8">
       <header>
@@ -1563,19 +1560,28 @@ const TeamPanel = ({ users }: { users: User[] }) => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {users.map(u => (
-          <div key={u.id} className="bg-white p-6 rounded-2xl border border-zinc-200 shadow-sm flex items-center gap-4">
-            <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-lg">
-              {(u.full_name || 'U').charAt(0)}
+          <div key={u.id} className="bg-white p-6 rounded-2xl border border-zinc-200 shadow-sm flex flex-col gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-lg">
+                {(u.full_name || 'U').charAt(0)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-zinc-900 truncate">{u.full_name || 'User'}</p>
+                <p className="text-xs text-zinc-500 truncate">{u.email}</p>
+                <span className={`inline-block mt-2 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${
+                  u.role === 'admin' ? 'bg-purple-100 text-purple-600' : 'bg-zinc-100 text-zinc-600'
+                }`}>
+                  {u.role}
+                </span>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-zinc-900 truncate">{u.full_name || 'User'}</p>
-              <p className="text-xs text-zinc-500 truncate">{u.email}</p>
-              <span className={`inline-block mt-2 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${
-                u.role === 'admin' ? 'bg-purple-100 text-purple-600' : 'bg-zinc-100 text-zinc-600'
-              }`}>
-                {u.role}
-              </span>
-            </div>
+            <button 
+              onClick={() => onAssignTask(u)}
+              className="w-full py-2 bg-zinc-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2"
+            >
+              <Plus size={14} />
+              Assign Task
+            </button>
           </div>
         ))}
       </div>
@@ -1594,6 +1600,7 @@ export default function App() {
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [useSupabase, setUseSupabase] = useState(!!(import.meta as any).env.VITE_SUPABASE_URL && !!(import.meta as any).env.VITE_SUPABASE_ANON_KEY);
 
   // Form states for new project
@@ -1612,6 +1619,7 @@ export default function App() {
   const [newTaskDesc, setNewTaskDesc] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
   const [newTaskAssignee, setNewTaskAssignee] = useState<number | string>(0);
+  const [newTaskProject, setNewTaskProject] = useState<number | string>(0);
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
 
   // Form states for new user
@@ -1762,16 +1770,17 @@ export default function App() {
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedProject) {
-      alert("Please select a project first using the sidebar.");
+    const projectId = newTaskProject || selectedProject?.id;
+    if (!projectId) {
+      alert("Please select a project.");
       return;
     }
 
     try {
       if (useSupabase) {
-        const assigneeId = newTaskAssignee > 0 ? newTaskAssignee : (user?.id || null);
+        const assigneeId = newTaskAssignee && newTaskAssignee !== '0' && newTaskAssignee !== 0 ? newTaskAssignee : null;
         const { error: taskError } = await supabase.from('tasks').insert({
-          project_id: selectedProject.id,
+          project_id: projectId,
           title: newTaskTitle,
           description: newTaskDesc,
           priority: newTaskPriority,
@@ -1790,15 +1799,16 @@ export default function App() {
         setNewTaskDesc('');
         setNewTaskDueDate('');
         setNewTaskAssignee(0);
+        setNewTaskProject(0);
         setNewTaskPriority('medium');
         await fetchData();
         return;
       }
 
-      const assigneeId = newTaskAssignee > 0 ? newTaskAssignee : (user?.id || null);
+      const assigneeId = newTaskAssignee && newTaskAssignee !== '0' && newTaskAssignee !== 0 ? newTaskAssignee : null;
       
       const payload = {
-        project_id: selectedProject.id,
+        project_id: projectId,
         title: newTaskTitle,
         description: newTaskDesc,
         priority: newTaskPriority,
@@ -1821,10 +1831,10 @@ export default function App() {
         setNewTaskDesc('');
         setNewTaskDueDate('');
         setNewTaskAssignee(0);
+        setNewTaskProject(0);
         setNewTaskPriority('medium');
         
         await fetchData();
-        // Optional: show success feedback
       } else {
         const errorData = await res.json();
         alert(`Error: ${errorData.error || 'Failed to create task'}`);
@@ -2003,7 +2013,7 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              {activeTab === 'dashboard' && <Dashboard projects={projects} tasks={tasks} />}
+              {activeTab === 'dashboard' && <Dashboard projects={projects} tasks={tasks} onSelectTask={setSelectedTask} />}
               {activeTab === 'projects' && (
                 selectedProject ? (
                   <ProjectBoard 
@@ -2012,10 +2022,15 @@ export default function App() {
                     users={users}
                     user={user}
                     onUpdateTask={handleUpdateTask}
-                    onAddTask={() => setIsTaskModalOpen(true)}
+                    onAddTask={() => {
+                      setNewTaskProject(selectedProject.id);
+                      setIsTaskModalOpen(true);
+                    }}
                     onDeleteTask={handleDeleteTask}
                     onDeleteProject={handleDeleteProject}
                     onEditProject={handleEditProject}
+                    selectedTask={selectedTask}
+                    onSelectTask={setSelectedTask}
                   />
                 ) : (
                   <div className="text-center py-20">
@@ -2034,12 +2049,19 @@ export default function App() {
                 )
               )}
               {activeTab === 'gantt' && <GanttView tasks={tasks} />}
-              {activeTab === 'team' && <TeamPanel users={users} />}
+              {activeTab === 'team' && <TeamPanel users={users} onAssignTask={(u) => {
+                setNewTaskAssignee(u.id);
+                setIsTaskModalOpen(true);
+              }} />}
               {activeTab === 'admin' && user.role === 'admin' && (
                 <AdminPanel 
                   onAddUser={() => setIsUserModalOpen(true)} 
                   users={users}
                   onRefresh={fetchData}
+                  onAssignTask={(u) => {
+                    setNewTaskAssignee(u.id);
+                    setIsTaskModalOpen(true);
+                  }}
                 />
               )}
               {activeTab === 'settings' && <SettingsPanel user={user} useSupabase={useSupabase} />}
@@ -2047,6 +2069,25 @@ export default function App() {
           </AnimatePresence>
         </div>
       </main>
+
+      <AnimatePresence>
+        {selectedTask && (
+          <TaskDetailModal 
+            task={selectedTask}
+            user={user}
+            users={users}
+            onClose={() => setSelectedTask(null)}
+            onUpdate={handleUpdateTask}
+            onDelete={async (id) => {
+              if (confirm("Are you sure you want to delete this task?")) {
+                await handleDeleteTask(id);
+                setSelectedTask(null);
+              }
+              return true;
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Add Task Modal */}
       {isTaskModalOpen && (
@@ -2058,6 +2099,18 @@ export default function App() {
           >
             <h3 className="text-xl font-bold mb-6">Create New Task</h3>
             <form onSubmit={handleAddTask} className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-zinc-700 mb-1">Project</label>
+                <select 
+                  value={newTaskProject || selectedProject?.id || 0}
+                  onChange={(e) => setNewTaskProject(isNaN(parseInt(e.target.value)) ? e.target.value : parseInt(e.target.value))}
+                  className="w-full px-4 py-2 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  required
+                >
+                  <option value={0} disabled>Select Project</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
               <div>
                 <label className="block text-sm font-bold text-zinc-700 mb-1">Title</label>
                 <input 
@@ -2080,10 +2133,13 @@ export default function App() {
                 <label className="block text-sm font-bold text-zinc-700 mb-1">Assignee</label>
                 <select 
                   value={newTaskAssignee}
-                  onChange={(e) => setNewTaskAssignee(parseInt(e.target.value))}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setNewTaskAssignee(val === '0' ? 0 : (isNaN(parseInt(val)) ? val : parseInt(val)));
+                  }}
                   className="w-full px-4 py-2 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none"
                 >
-                  <option value={0}>Select Assignee</option>
+                  <option value={0}>Unassigned</option>
                   {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
                 </select>
               </div>
