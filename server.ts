@@ -79,7 +79,7 @@ try {
 const adminExists = db.prepare("SELECT * FROM users WHERE role = 'admin'").get();
 if (!adminExists) {
   db.prepare("INSERT INTO users (email, password, full_name, role) VALUES (?, ?, ?, ?)").run(
-    "admin@apm.com",
+    "admin@advancedprojectmanagement.com",
     "admin123",
     "System Administrator",
     "admin"
@@ -89,9 +89,9 @@ if (!adminExists) {
 // Seed demo project if not exists
 const projectExists = db.prepare("SELECT * FROM projects").get();
 if (!projectExists) {
-  const admin = db.prepare("SELECT id FROM users WHERE email = 'admin@apm.com'").get();
+  const admin = db.prepare("SELECT id FROM users WHERE email = 'admin@advancedprojectmanagement.com'").get();
   const projectId = db.prepare("INSERT INTO projects (name, description, owner_id) VALUES (?, ?, ?)").run(
-    "APM Launch",
+    "Advanced Project Management Launch",
     "Main project for launching the Advanced Project Management platform.",
     admin.id
   ).lastInsertRowid;
@@ -423,7 +423,7 @@ async function startServer() {
       const content = await zip.generateAsync({ type: "nodebuffer" });
 
       res.setHeader("Content-Type", "application/zip");
-      res.setHeader("Content-Disposition", "attachment; filename=apm-project.zip");
+      res.setHeader("Content-Disposition", "attachment; filename=advanced-project-management.zip");
       res.send(content);
     } catch (error) {
       console.error("Error generating zip:", error);
