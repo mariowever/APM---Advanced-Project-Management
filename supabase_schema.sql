@@ -34,10 +34,32 @@ CREATE TABLE IF NOT EXISTS tasks (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- Create comments table
+CREATE TABLE IF NOT EXISTS comments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Create attachments table
+CREATE TABLE IF NOT EXISTS attachments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  file_name TEXT NOT NULL,
+  file_url TEXT NOT NULL,
+  file_type TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 -- Set up Row Level Security (RLS)
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attachments ENABLE ROW LEVEL SECURITY;
 
 -- Profiles policies
 CREATE POLICY "Public profiles are viewable by everyone." ON profiles
@@ -66,6 +88,20 @@ CREATE POLICY "Tasks are viewable by authenticated users." ON tasks
   FOR SELECT USING (auth.role() = 'authenticated');
 
 CREATE POLICY "Authenticated users can manage tasks." ON tasks
+  FOR ALL USING (auth.role() = 'authenticated');
+
+-- Comments policies
+CREATE POLICY "Comments are viewable by authenticated users." ON comments
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Authenticated users can manage comments." ON comments
+  FOR ALL USING (auth.role() = 'authenticated');
+
+-- Attachments policies
+CREATE POLICY "Attachments are viewable by authenticated users." ON attachments
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Authenticated users can manage attachments." ON attachments
   FOR ALL USING (auth.role() = 'authenticated');
 
 -- Function to handle new user signup

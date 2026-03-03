@@ -302,14 +302,18 @@ const TaskDetailModal = ({
   users,
   onClose, 
   onUpdate, 
-  onDelete 
+  onDelete,
+  useSupabase,
+  onRefresh
 }: { 
   task: Task, 
   user: User,
   users: User[],
   onClose: () => void, 
   onUpdate: (id: number | string, updates: Partial<Task>) => void,
-  onDelete: (id: number | string) => Promise<boolean>
+  onDelete: (id: number | string) => Promise<boolean>,
+  useSupabase: boolean,
+  onRefresh?: () => void
 }) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -327,6 +331,27 @@ const TaskDetailModal = ({
 
   const fetchDetails = async () => {
     try {
+      if (useSupabase) {
+        const [cRes, aRes] = await Promise.all([
+          supabase.from('comments').select('*, profiles(full_name)').eq('task_id', task.id).order('created_at', { ascending: true }),
+          supabase.from('attachments').select('*, profiles(full_name)').eq('task_id', task.id)
+        ]);
+        
+        if (cRes.data) {
+          setComments(cRes.data.map((c: any) => ({
+            ...c,
+            user_name: c.profiles?.full_name
+          })));
+        }
+        if (aRes.data) {
+          setAttachments(aRes.data.map((a: any) => ({
+            ...a,
+            user_name: a.profiles?.full_name
+          })));
+        }
+        return;
+      }
+
       const [cRes, aRes] = await Promise.all([
         fetch(`/api/tasks/${task.id}/comments`),
         fetch(`/api/tasks/${task.id}/attachments`)
@@ -349,6 +374,24 @@ const TaskDetailModal = ({
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim()) return;
+
+    if (useSupabase) {
+      const { error } = await supabase.from('comments').insert({
+        task_id: task.id,
+        user_id: user.id,
+        content: newComment
+      });
+      if (!error) {
+        setNewComment('');
+        fetchDetails();
+        if (onRefresh) onRefresh();
+      } else {
+        console.error("Error adding comment:", error);
+        alert(`Failed to add comment: ${error.message}`);
+      }
+      return;
+    }
+
     const res = await fetch(`/api/tasks/${task.id}/comments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -357,12 +400,33 @@ const TaskDetailModal = ({
     if (res.ok) {
       setNewComment('');
       fetchDetails();
+      if (onRefresh) onRefresh();
     }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (useSupabase) {
+      // In a real app, we would upload to Supabase Storage first
+      // For this demo, we'll just store the metadata
+      const { error } = await supabase.from('attachments').insert({
+        task_id: task.id,
+        user_id: user.id,
+        file_name: file.name,
+        file_url: '#',
+        file_type: file.type
+      });
+      if (!error) {
+        fetchDetails();
+        if (onRefresh) onRefresh();
+      } else {
+        console.error("Error adding attachment:", error);
+      }
+      return;
+    }
+
     // Simulate file upload
     await fetch(`/api/tasks/${task.id}/attachments`, {
       method: 'POST',
@@ -375,6 +439,7 @@ const TaskDetailModal = ({
       })
     });
     fetchDetails();
+    if (onRefresh) onRefresh();
   };
 
   const handleSave = () => {
@@ -1659,7 +1724,7 @@ export default function App() {
       try {
         const [pRes, tRes, uRes] = await Promise.all([
           supabase.from('projects').select('*'),
-          supabase.from('tasks').select('*, profiles(full_name), projects(name)'),
+          supabase.from('tasks').select('*, profiles(full_name), projects(name), comments(count), attachments(count)'),
           supabase.from('profiles').select('*')
         ]);
 
@@ -1668,7 +1733,9 @@ export default function App() {
           const formattedTasks = tRes.data.map((t: any) => ({
             ...t,
             assignee_name: t.profiles?.full_name,
-            project_name: t.projects?.name
+            project_name: t.projects?.name,
+            comments_count: t.comments?.[0]?.count || 0,
+            attachments_count: t.attachments?.[0]?.count || 0
           }));
           setTasks(formattedTasks);
         }
@@ -1745,7 +1812,16 @@ export default function App() {
     try {
       // Sanitize assignee_id for Supabase/PostgreSQL UUID compatibility
       const sanitizedUpdates = { ...updates };
-      if (sanitizedUpdates.assignee_id === 0 || sanitizedUpdates.assignee_id === '0') {
+      
+      // If using Supabase, ensure assignee_id is either a valid UUID or null
+      // Numeric IDs like "9" or "0" will be converted to null
+      if (useSupabase && sanitizedUpdates.assignee_id !== undefined) {
+        const val = sanitizedUpdates.assignee_id;
+        const isUuid = typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+        if (!isUuid && val !== null) {
+          sanitizedUpdates.assignee_id = null;
+        }
+      } else if (sanitizedUpdates.assignee_id === 0 || sanitizedUpdates.assignee_id === '0') {
         sanitizedUpdates.assignee_id = null;
       }
 
@@ -1784,7 +1860,14 @@ export default function App() {
 
     try {
       if (useSupabase) {
-        const assigneeId = newTaskAssignee && newTaskAssignee !== '0' && newTaskAssignee !== 0 ? newTaskAssignee : null;
+        let assigneeId = newTaskAssignee && newTaskAssignee !== '0' && newTaskAssignee !== 0 ? newTaskAssignee : null;
+        
+        // Ensure assigneeId is a valid UUID if using Supabase
+        if (assigneeId) {
+          const isUuid = typeof assigneeId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assigneeId);
+          if (!isUuid) assigneeId = null;
+        }
+
         const { error: taskError } = await supabase.from('tasks').insert({
           project_id: projectId,
           title: newTaskTitle,
@@ -1939,6 +2022,11 @@ export default function App() {
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (useSupabase) {
+      alert("In Supabase mode, users should sign up via the login page or be managed through the Supabase dashboard. Local user creation is disabled.");
+      setIsUserModalOpen(false);
+      return;
+    }
     try {
       const res = await fetch('/api/admin/users', {
         method: 'POST',
@@ -2091,6 +2179,8 @@ export default function App() {
               }
               return true;
             }}
+            useSupabase={useSupabase}
+            onRefresh={fetchData}
           />
         )}
       </AnimatePresence>
