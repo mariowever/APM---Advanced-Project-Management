@@ -390,6 +390,17 @@ async function startServer() {
     res.json({ id: result.lastInsertRowid });
   });
 
+  app.delete("/api/attachments/:id", (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare("DELETE FROM attachments WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting attachment:", error);
+      res.status(500).json({ error: error.message || "Failed to delete attachment" });
+    }
+  });
+
   // Download Project as ZIP
   app.get("/api/download-zip", async (req, res) => {
     try {

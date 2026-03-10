@@ -32,7 +32,8 @@ import {
   Filter,
   GanttChart,
   Download,
-  ArrowRight
+  ArrowRight,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as d3 from 'd3';
@@ -408,14 +409,25 @@ const TaskDetailModal = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Create a data URL for local preview/opening if it's a small file
+    // In a real app, this would be a URL from a storage bucket
+    let fileUrl = '#';
+    if (file.size < 10 * 1024 * 1024) { // 10MB limit for data URL simulation
+      const reader = new FileReader();
+      fileUrl = await new Promise((resolve) => {
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      });
+    } else {
+      alert("File is too large for this demo (max 10MB). It will be saved as a placeholder.");
+    }
+
     if (useSupabase) {
-      // In a real app, we would upload to Supabase Storage first
-      // For this demo, we'll just store the metadata
       const { error } = await supabase.from('attachments').insert({
         task_id: task.id,
         user_id: user.id,
         file_name: file.name,
-        file_url: '#',
+        file_url: fileUrl,
         file_type: file.type
       });
       if (!error) {
@@ -434,12 +446,35 @@ const TaskDetailModal = ({
       body: JSON.stringify({
         user_id: user.id,
         file_name: file.name,
-        file_url: '#',
+        file_url: fileUrl,
         file_type: file.type
       })
     });
     fetchDetails();
     if (onRefresh) onRefresh();
+  };
+
+  const handleDeleteAttachment = async (attachmentId: number | string) => {
+    if (!confirm("Are you sure you want to delete this attachment?")) return;
+
+    if (useSupabase) {
+      const { error } = await supabase.from('attachments').delete().eq('id', attachmentId);
+      if (!error) {
+        fetchDetails();
+        if (onRefresh) onRefresh();
+      } else {
+        console.error("Error deleting attachment:", error);
+      }
+      return;
+    }
+
+    const res = await fetch(`/api/attachments/${attachmentId}`, {
+      method: 'DELETE'
+    });
+    if (res.ok) {
+      fetchDetails();
+      if (onRefresh) onRefresh();
+    }
   };
 
   const handleSave = () => {
@@ -683,14 +718,50 @@ const TaskDetailModal = ({
               </h4>
               <div className="space-y-2">
                 {attachments.map(file => (
-                  <div key={file.id} className="flex items-center gap-3 p-3 bg-white border border-zinc-200 rounded-xl hover:border-indigo-200 transition-colors">
-                    <div className="p-2 bg-zinc-50 rounded-lg text-zinc-400">
-                      <FileText size={16} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-zinc-900 truncate">{file.file_name}</p>
-                      <p className="text-[10px] text-zinc-400">Uploaded by {file.user_name}</p>
-                    </div>
+                  <div key={file.id} className="group relative">
+                    <a 
+                      href={file.file_url === '#' ? undefined : file.file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => {
+                        if (file.file_url === '#') {
+                          e.preventDefault();
+                          alert("This attachment is a placeholder from an older version and cannot be opened. Please delete and re-upload it.");
+                        }
+                      }}
+                      className={`flex items-center gap-3 p-3 bg-white border border-zinc-200 rounded-xl transition-all ${
+                        file.file_url !== '#' ? 'hover:border-indigo-300 hover:bg-indigo-50/30 cursor-pointer' : 'opacity-60 grayscale'
+                      }`}
+                    >
+                      <div className={`p-2 rounded-lg transition-colors ${
+                        file.file_url !== '#' ? 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100' : 'bg-zinc-50 text-zinc-400'
+                      }`}>
+                        <FileText size={16} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-bold text-zinc-900 truncate group-hover:text-indigo-600 transition-colors">{file.file_name}</p>
+                          {file.file_url === '#' && (
+                            <span className="text-[8px] font-bold bg-zinc-100 text-zinc-400 px-1 rounded">PLACEHOLDER</span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-zinc-400">Uploaded by {file.user_name}</p>
+                      </div>
+                      {file.file_url !== '#' && (
+                        <ExternalLink size={14} className="text-zinc-300 group-hover:text-indigo-400 transition-colors" />
+                      )}
+                    </a>
+                    <button 
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleDeleteAttachment(file.id);
+                      }}
+                      className="absolute -top-2 -right-2 p-1 bg-white border border-zinc-200 text-zinc-400 hover:text-red-600 hover:border-red-200 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-all z-10"
+                      title="Delete Attachment"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 ))}
               </div>
