@@ -410,16 +410,16 @@ const TaskDetailModal = ({
     if (!file) return;
 
     // Create a data URL for local preview/opening if it's a small file
-    // In a real app, this would be a URL from a storage bucket
     let fileUrl = '#';
-    if (file.size < 10 * 1024 * 1024) { // 10MB limit for data URL simulation
+    if (file.size < 10 * 1024 * 1024) { // 10MB limit
       const reader = new FileReader();
       fileUrl = await new Promise((resolve) => {
         reader.onloadend = () => resolve(reader.result as string);
         reader.readAsDataURL(file);
       });
     } else {
-      alert("File is too large for this demo (max 10MB). It will be saved as a placeholder.");
+      alert("Bestand is te groot voor deze demo (max 10MB).");
+      return;
     }
 
     if (useSupabase) {
@@ -433,13 +433,10 @@ const TaskDetailModal = ({
       if (!error) {
         fetchDetails();
         if (onRefresh) onRefresh();
-      } else {
-        console.error("Error adding attachment:", error);
       }
       return;
     }
 
-    // Simulate file upload
     await fetch(`/api/tasks/${task.id}/attachments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -452,6 +449,37 @@ const TaskDetailModal = ({
     });
     fetchDetails();
     if (onRefresh) onRefresh();
+  };
+
+  const openFile = (file: Attachment) => {
+    if (file.file_url === '#') {
+      alert("Dit is een placeholder en kan niet geopend worden.");
+      return;
+    }
+
+    try {
+      // Modern browsers block direct navigation to data: URLs.
+      // We convert it to a Blob and create an Object URL instead.
+      const parts = file.file_url.split(',');
+      const mime = parts[0].match(/:(.*?);/)?.[1];
+      const bstr = atob(parts[1]);
+      let n = bstr.length;
+      const u8arr = new Uint8Array(n);
+      while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
+      }
+      const blob = new Blob([u8arr], { type: mime });
+      const url = URL.createObjectURL(blob);
+      
+      // Open in new tab
+      window.open(url, '_blank');
+      
+      // Clean up the URL after a delay
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      console.error("Fout bij openen bestand:", e);
+      alert("Kon het bestand niet openen. Probeer het opnieuw.");
+    }
   };
 
   const handleDeleteAttachment = async (attachmentId: number | string) => {
@@ -719,18 +747,10 @@ const TaskDetailModal = ({
               <div className="space-y-2">
                 {attachments.map(file => (
                   <div key={file.id} className="group relative">
-                    <a 
-                      href={file.file_url === '#' ? undefined : file.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => {
-                        if (file.file_url === '#') {
-                          e.preventDefault();
-                          alert("This attachment is a placeholder from an older version and cannot be opened. Please delete and re-upload it.");
-                        }
-                      }}
-                      className={`flex items-center gap-3 p-3 bg-white border border-zinc-200 rounded-xl transition-all ${
-                        file.file_url !== '#' ? 'hover:border-indigo-300 hover:bg-indigo-50/30 cursor-pointer' : 'opacity-60 grayscale'
+                    <button 
+                      onClick={() => openFile(file)}
+                      className={`w-full flex items-center gap-3 p-3 bg-white border border-zinc-200 rounded-xl transition-all text-left ${
+                        file.file_url !== '#' ? 'hover:border-indigo-300 hover:bg-indigo-50/30 cursor-pointer' : 'opacity-60 grayscale cursor-not-allowed'
                       }`}
                     >
                       <div className={`p-2 rounded-lg transition-colors ${
@@ -750,7 +770,7 @@ const TaskDetailModal = ({
                       {file.file_url !== '#' && (
                         <ExternalLink size={14} className="text-zinc-300 group-hover:text-indigo-400 transition-colors" />
                       )}
-                    </a>
+                    </button>
                     <button 
                       onClick={(e) => {
                         e.preventDefault();
