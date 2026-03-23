@@ -806,7 +806,7 @@ const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, on
   selectedTask: Task | null,
   onSelectTask: (task: Task | null) => void
 }) => {
-  const [filter, setFilter] = useState<'all' | 'mine'>('all');
+  const [filter, setFilter] = useState<string>('all');
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -817,7 +817,11 @@ const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, on
     { id: 'done', label: 'Done', color: 'bg-emerald-50' },
   ];
 
-  const filteredTasks = tasks.filter(t => filter === 'all' || t.assignee_id === user.id);
+  const filteredTasks = tasks.filter(t => {
+    if (filter === 'all') return true;
+    if (filter === 'mine') return t.assignee_id === user.id;
+    return t.assignee_id === filter;
+  });
 
   const getNextStatus = (current: string) => {
     const idx = columns.findIndex(c => c.id === current);
@@ -854,7 +858,7 @@ const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, on
               </button>
             </>
           )}
-          <div className="bg-zinc-100 p-1 rounded-xl flex gap-1">
+          <div className="bg-zinc-100 p-1 rounded-xl flex gap-1 items-center">
             <button 
               onClick={() => setFilter('all')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${filter === 'all' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}
@@ -867,6 +871,22 @@ const ProjectBoard = ({ project, tasks, users, user, onUpdateTask, onAddTask, on
             >
               My Tasks
             </button>
+            
+            {user.role === 'admin' && (
+              <div className="flex items-center gap-1 ml-1 pl-1 border-l border-zinc-200">
+                <Users size={14} className="text-zinc-400 ml-1" />
+                <select 
+                  value={['all', 'mine'].includes(filter) ? '' : filter}
+                  onChange={(e) => setFilter(e.target.value || 'all')}
+                  className="bg-transparent text-xs font-bold text-zinc-600 focus:outline-none cursor-pointer hover:text-indigo-600 transition-colors"
+                >
+                  <option value="">Filter by User...</option>
+                  {users.filter(u => u.id !== user.id).map(u => (
+                    <option key={u.id} value={u.id}>{u.full_name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           <button 
             onClick={onAddTask}
