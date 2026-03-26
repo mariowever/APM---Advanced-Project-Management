@@ -83,13 +83,14 @@ type Comment = {
 };
 
 type Attachment = {
-  id: number;
-  task_id: number;
-  user_id: number;
+  id: number | string;
+  task_id: number | string;
+  user_id: number | string;
   user_name: string;
   file_name: string;
   file_url: string;
   file_type: string;
+  storage_path?: string;
   created_at: string;
 };
 
@@ -333,9 +334,11 @@ const TaskDetailModal = ({
   const fetchDetails = async () => {
     try {
       if (useSupabase) {
-        const [cRes, aRes] = await Promise.all([
+        // Fetch comments and attachments (including the file_url only when needed here)
+        const [cRes, aRes, tRes] = await Promise.all([
           supabase.from('comments').select('*, profiles(full_name)').eq('task_id', task.id).order('created_at', { ascending: true }),
-          supabase.from('attachments').select('*, profiles(full_name)').eq('task_id', task.id)
+          supabase.from('attachments').select('*, profiles(full_name)').eq('task_id', task.id),
+          supabase.from('tasks').select('description, health_status').eq('id', task.id).single()
         ]);
         
         if (cRes.data) {
@@ -409,7 +412,55 @@ const TaskDetailModal = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Create a data URL for local preview/opening if it's a small file
+    if (useSupabase) {
+      try {
+        // 1. Upload file to Supabase Storage bucket 'task-attachments'
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
+        const filePath = `${task.id}/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('task-attachments')
+          .upload(filePath, file);
+
+        if (uploadError) {
+          if (uploadError.message.includes('bucket not found')) {
+            alert("Fout: De 'task-attachments' bucket bestaat nog niet in Supabase Storage. Maak deze eerst aan in je Supabase Dashboard.");
+          } else {
+            throw uploadError;
+          }
+          return;
+        }
+
+        // 2. Get the public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('task-attachments')
+          .getPublicUrl(filePath);
+
+        // 3. Save the URL in the attachments table
+        const { error: dbError } = await supabase.from('attachments').insert({
+          task_id: task.id,
+          user_id: user.id,
+          file_name: file.name,
+          file_url: publicUrl,
+          file_type: file.type,
+          storage_path: filePath // We store this to delete it later
+        });
+
+        if (!dbError) {
+          fetchDetails();
+          if (onRefresh) onRefresh();
+        } else {
+          throw dbError;
+        }
+      } catch (error: any) {
+        console.error("Error uploading to Supabase Storage:", error);
+        alert("Fout bij uploaden: " + error.message);
+      }
+      return;
+    }
+
+    // Local/SQLite fallback: Create a data URL for local preview/opening if it's a small file
     let fileUrl = '#';
     if (file.size < 10 * 1024 * 1024) { // 10MB limit
       const reader = new FileReader();
@@ -419,21 +470,6 @@ const TaskDetailModal = ({
       });
     } else {
       alert("Bestand is te groot voor deze demo (max 10MB).");
-      return;
-    }
-
-    if (useSupabase) {
-      const { error } = await supabase.from('attachments').insert({
-        task_id: task.id,
-        user_id: user.id,
-        file_name: file.name,
-        file_url: fileUrl,
-        file_type: file.type
-      });
-      if (!error) {
-        fetchDetails();
-        if (onRefresh) onRefresh();
-      }
       return;
     }
 
@@ -457,10 +493,19 @@ const TaskDetailModal = ({
       return;
     }
 
+    // If it's a standard URL (from Supabase Storage), just open it
+    if (file.file_url.startsWith('http')) {
+      window.open(file.file_url, '_blank');
+      return;
+    }
+
     try {
+      // For legacy Base64 data URLs:
       // Modern browsers block direct navigation to data: URLs.
       // We convert it to a Blob and create an Object URL instead.
       const parts = file.file_url.split(',');
+      if (parts.length < 2) throw new Error("Invalid data URL");
+      
       const mime = parts[0].match(/:(.*?);/)?.[1];
       const bstr = atob(parts[1]);
       let n = bstr.length;
@@ -482,21 +527,34 @@ const TaskDetailModal = ({
     }
   };
 
-  const handleDeleteAttachment = async (attachmentId: number | string) => {
-    if (!confirm("Are you sure you want to delete this attachment?")) return;
+  const handleDeleteAttachment = async (attachment: Attachment) => {
+    if (!confirm("Weet je zeker dat je deze bijlage wilt verwijderen?")) return;
 
     if (useSupabase) {
-      const { error } = await supabase.from('attachments').delete().eq('id', attachmentId);
-      if (!error) {
-        fetchDetails();
-        if (onRefresh) onRefresh();
-      } else {
+      try {
+        // 1. If it has a storage path, delete from Supabase Storage first
+        if (attachment.storage_path) {
+          await supabase.storage
+            .from('task-attachments')
+            .remove([attachment.storage_path]);
+        }
+
+        // 2. Delete from database
+        const { error } = await supabase.from('attachments').delete().eq('id', attachment.id);
+        if (!error) {
+          fetchDetails();
+          if (onRefresh) onRefresh();
+        } else {
+          throw error;
+        }
+      } catch (error: any) {
         console.error("Error deleting attachment:", error);
+        alert("Fout bij verwijderen: " + error.message);
       }
       return;
     }
 
-    const res = await fetch(`/api/attachments/${attachmentId}`, {
+    const res = await fetch(`/api/attachments/${attachment.id}`, {
       method: 'DELETE'
     });
     if (res.ok) {
@@ -775,7 +833,7 @@ const TaskDetailModal = ({
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        handleDeleteAttachment(file.id);
+                        handleDeleteAttachment(file);
                       }}
                       className="absolute -top-2 -right-2 p-1 bg-white border border-zinc-200 text-zinc-400 hover:text-red-600 hover:border-red-200 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-all z-10"
                       title="Delete Attachment"
@@ -1833,15 +1891,24 @@ export default function App() {
   const fetchData = async () => {
     if (useSupabase) {
       try {
-        const [pRes, tRes, uRes] = await Promise.all([
-          supabase.from('projects').select('*'),
-          supabase.from('tasks').select('*, profiles(full_name), projects(name), comments(count), attachments(count)'),
-          supabase.from('profiles').select('*')
+        // Fetch projects and users first
+        const [pRes, uRes] = await Promise.all([
+          supabase.from('projects').select('*').order('created_at', { ascending: false }),
+          supabase.from('profiles').select('*').order('full_name')
         ]);
 
         if (pRes.data) setProjects(pRes.data);
-        if (tRes.data) {
-          const formattedTasks = tRes.data.map((t: any) => ({
+        if (uRes.data) setUsers(uRes.data);
+
+        // Fetch tasks but EXCLUDE the large file_url field from the main list to save Disk IO
+        // We only fetch counts for comments and attachments
+        const { data: tasksData, error: tasksError } = await supabase
+          .from('tasks')
+          .select('*, profiles(full_name), projects(name), comments(count), attachments(count)')
+          .order('created_at', { ascending: false });
+
+        if (tasksData) {
+          const formattedTasks = tasksData.map((t: any) => ({
             ...t,
             assignee_name: t.profiles?.full_name,
             project_name: t.projects?.name,
@@ -1850,7 +1917,6 @@ export default function App() {
           }));
           setTasks(formattedTasks);
         }
-        if (uRes.data) setUsers(uRes.data);
 
         if (pRes.data && pRes.data.length > 0 && !selectedProject) {
           setSelectedProject(pRes.data[0]);
